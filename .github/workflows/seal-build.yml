@@ -1,0 +1,57 @@
+name: seal-build
+
+# Build-and-pack only: the test suite runs on Travis (.travis.yml).
+on:
+  workflow_dispatch: {}
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NPM_CONFIG_REGISTRY: https://:2014-05-01T18%3A05%3A32.863000Z@time-machines-npm.sealsecurity.io/
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '0.10'
+      - name: Install faketime
+        run: sudo apt-get update && sudo apt-get install -y faketime
+      - name: Install dependencies
+        run: npm install
+      # `npm run build` is `npm install && grunt`; grunt stamps the build time into
+      # dist/jquery.js ("Date:") and the year into the jquery.min.js banner, so it runs
+      # under faketime at the 1.11.1 release build time to keep dist reproducible.
+      - name: Build
+        run: TZ=UTC faketime '2014-05-01 17:42:00' ./node_modules/.bin/grunt
+      # dist/cdn copies, exactly as build/release.js makeReleaseCopies() writes them at release time.
+      - name: Release copies
+        run: |
+          node -e '
+            var fs = require("fs"), v = require("./package.json").version, cdn = "dist/cdn";
+            var files = { "jquery-VER.js": "dist/jquery.js", "jquery-VER.min.js": "dist/jquery.min.js",
+              "jquery-VER.min.map": "dist/jquery.min.map", "jquery.js": "dist/jquery.js",
+              "jquery.min.js": "dist/jquery.min.js", "jquery.min.map": "dist/jquery.min.map",
+              "jquery-latest.js": "dist/jquery.js", "jquery-latest.min.js": "dist/jquery.min.js",
+              "jquery-latest.min.map": "dist/jquery.min.map" };
+            if (!fs.existsSync(cdn)) { fs.mkdirSync(cdn); }
+            Object.keys(files).forEach(function (key) {
+              var built = files[key], name = key.replace(/VER/g, v), out = cdn + "/" + name,
+                text = fs.readFileSync(built, "utf8");
+              if (/\.map$/.test(out)) {
+                text = text.replace(/"file":"([^"]+)","sources":\["([^"]+)"\]/,
+                  "\"file\":\"" + name.replace(/\.min\.map/, ".min.js") +
+                  "\",\"sources\":[\"" + name.replace(/\.min\.map/, ".js") + "\"]");
+              } else if (/\.min\.js$/.test(out)) {
+                text = text.replace(/\/\/# sourceMappingURL=\S+/, "");
+              }
+              fs.writeFileSync(out, text);
+            });
+          '
+      - name: Pack
+        run: npm pack
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jquery-npm
+          path: jquery-*.tgz
+          if-no-files-found: error

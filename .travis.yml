@@ -1,3 +1,13 @@
 language: node_js
 node_js:
 - '0.10'
+cache: false
+before_install:
+- npm config set registry https://:2014-05-01T18%3A05%3A32.863000Z@time-machines-npm.sealsecurity.io/
+before_script:
+- PHP_CLI_SERVER_WORKERS=8 php -S 127.0.0.1:8000 > /tmp/php-server.log 2>&1 &
+script:
+- npm test
+- google-chrome-stable --version
+- nvm install 18 && npm install --prefix /tmp/qunit-runner --registry=https://registry.npmjs.org/ puppeteer-core@21.11.0
+- NODE_PATH=/tmp/qunit-runner/node_modules node test/headless/run.js "http://127.0.0.1:8000/test/index.html"
