@@ -2483,3 +2483,80 @@ asyncTest( "Self-closing tags are not rewritten into closing tags (CVE-2020-1102
 		start();
 	}, 500 );
 });
+
+test( "<option> and <optgroup> markup cannot break out of a select wrapper (CVE-2020-11023)", 5, function() {
+	var i,
+		option = "<option>a</option></select><b>b</b>",
+		optgroup = "<optgroup label='g'></optgroup></select><b>b</b>",
+		probe = document.createElement( "div" );
+
+	function nodeNames( nodes ) {
+		return jQuery.map( jQuery.makeArray( nodes ), function( node ) {
+			return node.nodeName.toLowerCase();
+		}).join( "," );
+	}
+
+	// Support: IE<=9
+	// oldIE drops <option> tags outside of a select element so it still needs the wrapper
+	probe.innerHTML = "<option></option>";
+	if ( !probe.lastChild ) {
+		for ( i = 0; i < 5; i++ ) {
+			ok( true, "Skipped in a browser that requires a select wrapper for options" );
+		}
+		return;
+	}
+
+	// A stray </select> must not close a wrapper and change what gets parsed
+	equal( nodeNames( jQuery( option ) ), "option,b", "jQuery(html): option markup parsed in place" );
+	equal( nodeNames( jQuery.parseHTML( optgroup ) ), "optgroup,b",
+		"jQuery.parseHTML: optgroup markup parsed in place" );
+	equal( nodeNames( jQuery( "<div></div>" ).html( option )[ 0 ].childNodes ), "option,b",
+		"html(): option markup parsed in place" );
+	equal( nodeNames( jQuery( "<div></div>" ).append( optgroup )[ 0 ].childNodes ), "optgroup,b",
+		"append(): optgroup markup parsed in place" );
+	equal( nodeNames( jQuery( "<div><i></i></div>" ).prepend( "x" + option )[ 0 ].childNodes ), "#text,option,b,i",
+		"prepend(): option markup after leading text parsed in place" );
+});
+
+asyncTest( "Sanitized <option> markup does not execute injected code (CVE-2020-11023)", 16, function() {
+	var img = "<img src='data/cve-2020-11023.png' onerror='cve202011023 = true;'>",
+		fixture = jQuery( "#qunit-fixture" ),
+		payloads = {
+			"option/style": "<option><style></option></select>" + img + "</style>",
+			"optgroup/style": "<optgroup><style></optgroup></select>" + img + "</style>",
+			"option/xmp": "<option><xmp></option></select>" + img + "</xmp>"
+		};
+
+	// The injected handler flips this flag if it ever runs
+	Globals.register( "cve202011023" );
+	window.cve202011023 = false;
+
+	jQuery.each( payloads, function( label, html ) {
+		var $nodes,
+			$html = jQuery( "<div></div>" ).appendTo( fixture ),
+			$append = jQuery( "<div></div>" ).appendTo( fixture ),
+			$prepend = jQuery( "<div><i></i></div>" ).appendTo( fixture ),
+			$after = jQuery( "<div><i></i></div>" ).appendTo( fixture );
+
+		$html.html( html );
+		equal( $html.find( "img" ).length, 0, "html(): no img escaped from " + label );
+
+		$append.append( html );
+		equal( $append.find( "img" ).length, 0, "append(): no img escaped from " + label );
+
+		$prepend.prepend( html );
+		equal( $prepend.find( "img" ).length, 0, "prepend(): no img escaped from " + label );
+
+		$after.children().after( html );
+		equal( $after.find( "img" ).length, 0, "after(): no img escaped from " + label );
+
+		$nodes = jQuery( html );
+		equal( $nodes.filter( "img" ).length + $nodes.find( "img" ).length, 0,
+			"jQuery(html): no img escaped from " + label );
+	});
+
+	setTimeout(function() {
+		strictEqual( window.cve202011023, false, "No injected event handler was executed" );
+		start();
+	}, 500 );
+});
